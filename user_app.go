@@ -40,6 +40,11 @@ type LedgerTHORChain struct {
 	version VersionInfo
 }
 
+// Compatibility with Cosmos apps calling convention
+func FindLedgerCosmosUserApp() (*LedgerTHORChain, error) {
+	return FindLedgerTHORChainUserApp()
+}
+
 // FindLedgerTHORChainUserApp finds a THORChain user app running in a ledger device
 func FindLedgerTHORChainUserApp() (*LedgerTHORChain, error) {
 	ledgerAPI, err := ledger_go.FindLedger()
