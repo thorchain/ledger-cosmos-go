@@ -14,7 +14,7 @@
 *  limitations under the License.
 ********************************************************************************/
 
-package ledger_cosmos_go
+package ledger_thorchain_go
 
 import (
 	"fmt"

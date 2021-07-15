@@ -1,4 +1,4 @@
-module github.com/cosmos/ledger-cosmos-go
+module github.com/thorchain/ledger-thorchain-go
 
 go 1.12
 

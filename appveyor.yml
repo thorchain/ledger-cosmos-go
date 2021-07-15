@@ -20,6 +20,6 @@ install:
   - go env
 
 build_script:
-  - go build -x ./common.go ./user_app.go ./validator_app.go
+  - go build -x ./common.go ./user_app.go
   - go test ./common
 
