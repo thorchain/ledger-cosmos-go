@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   (c) 2018 ZondaX GmbH
+*   (c) 2018 - 2022 Zondax AG
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ func Test_PathGeneration0(t *testing.T) {
 	pathBytes, err := GetBip32bytesv1(bip32Path, 0)
 
 	if err != nil {
-		t.Fatalf( "Detected error, err: %s\n", err.Error())
+		t.Fatalf("Detected error, err: %s\n", err.Error())
 	}
 
 	fmt.Printf("Path: %x\n", pathBytes)
@@ -106,7 +106,7 @@ func Test_PathGeneration0v2(t *testing.T) {
 	pathBytes, err := GetBip32bytesv2(bip32Path, 0)
 
 	if err != nil {
-		t.Fatalf( "Detected error, err: %s\n", err.Error())
+		t.Fatalf("Detected error, err: %s\n", err.Error())
 	}
 
 	fmt.Printf("Path: %x\n", pathBytes)

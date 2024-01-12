@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   (c) 2018 ZondaX GmbH
+*   (c) 2018 - 2022 ZondaX AG
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
@@ -90,7 +90,7 @@ func GetBip32bytesv1(bip32Path []uint32, hardenCount int) ([]byte, error) {
 }
 
 func GetBip32bytesv2(bip44Path []uint32, hardenCount int) ([]byte, error) {
-	message := make([]byte, 40)
+	message := make([]byte, 20)
 	if len(bip44Path) != 5 {
 		return nil, fmt.Errorf("path should contain 5 elements")
 	}
