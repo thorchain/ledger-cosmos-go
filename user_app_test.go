@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   (c) 2018 ZondaX GmbH
+*   (c) 2018 - 2022 ZondaX AG
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
@@ -20,11 +20,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/btcsuite/btcd/btcec"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Ledger Test Mnemonic: equip will roof matter pink blind book anxiety banner elbow sun young
@@ -46,8 +48,6 @@ func Test_UserGetVersion(t *testing.T) {
 	}
 	defer userApp.Close()
 
-	userApp.api.Logging = true
-
 	version, err := userApp.GetVersion()
 	require.Nil(t, err, "Detected error")
 	fmt.Println(version)
@@ -64,8 +64,6 @@ func Test_UserGetPublicKey(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 	defer userApp.Close()
-
-	userApp.api.Logging = true
 
 	path := []uint32{44, 118, 5, 0, 21}
 
@@ -91,8 +89,6 @@ func Test_GetAddressPubKeySECP256K1_Zero(t *testing.T) {
 	}
 	defer userApp.Close()
 
-	userApp.api.Logging = true
-
 	hrp := "cosmos"
 	path := []uint32{44, 118, 0, 0, 0}
 
@@ -117,8 +113,6 @@ func Test_GetAddressPubKeySECP256K1(t *testing.T) {
 	}
 	defer userApp.Close()
 
-	userApp.api.Logging = true
-
 	hrp := "cosmos"
 	path := []uint32{44, 118, 5, 0, 21}
 
@@ -142,8 +136,6 @@ func Test_UserPK_HDPaths(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 	defer userApp.Close()
-
-	userApp.api.Logging = true
 
 	path := []uint32{44, 118, 0, 0, 0}
 
@@ -180,7 +172,7 @@ func Test_UserPK_HDPaths(t *testing.T) {
 			hex.EncodeToString(pubKey),
 			"Public key 44'/118'/0'/0/%d does not match\n", i)
 
-		_, err = btcec.ParsePubKey(pubKey[:], btcec.S256())
+		_, err = btcec.ParsePubKey(pubKey[:])
 		require.Nil(t, err, "Error parsing public key err: %s\n", err)
 
 	}
@@ -212,12 +204,10 @@ func Test_UserSign(t *testing.T) {
 	}
 	defer userApp.Close()
 
-	userApp.api.Logging = true
-
 	path := []uint32{44, 118, 0, 0, 5}
 
 	message := getDummyTx()
-	signature, err := userApp.SignSECP256K1(path, message)
+	signature, err := userApp.SignSECP256K1(path, message, 0)
 	if err != nil {
 		t.Fatalf("[Sign] Error: %s\n", err.Error())
 	}
@@ -233,13 +223,13 @@ func Test_UserSign(t *testing.T) {
 		return
 	}
 
-	pub2, err := btcec.ParsePubKey(pubKey[:], btcec.S256())
+	pub2, err := btcec.ParsePubKey(pubKey[:])
 	if err != nil {
 		t.Fatalf("[ParsePK] Error: " + err.Error())
 		return
 	}
 
-	sig2, err := btcec.ParseDERSignature(signature[:], btcec.S256())
+	sig2, err := ecdsa.ParseDERSignature(signature[:])
 	if err != nil {
 		t.Fatalf("[ParseSig] Error: " + err.Error())
 		return
@@ -260,15 +250,13 @@ func Test_UserSign_Fails(t *testing.T) {
 	}
 	defer userApp.Close()
 
-	userApp.api.Logging = true
-
 	path := []uint32{44, 118, 0, 0, 5}
 
 	message := getDummyTx()
 	garbage := []byte{65}
 	message = append(garbage, message...)
 
-	_, err = userApp.SignSECP256K1(path, message)
+	_, err = userApp.SignSECP256K1(path, message, 0)
 	assert.Error(t, err)
 	errMessage := err.Error()
 

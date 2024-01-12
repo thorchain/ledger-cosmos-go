@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   (c) 2018 ZondaX GmbH
+*   (c) 2018 - 2022 ZondaX AG
 *
 *  Licensed under the Apache License, Version 2.0 (the "License");
 *  you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 package ledger_thorchain_go
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -34,43 +35,40 @@ const (
 	userMessageChunkSize = 250
 )
 
-// LedgerTHORChain represents a connection to the THORChain app in a Ledger Nano S/X device
+// LedgerCosmos represents a connection to the Cosmos app in a Ledger Nano S device
 type LedgerTHORChain struct {
-	api     *ledger_go.Ledger
+	api     ledger_go.LedgerDevice
 	version VersionInfo
 }
 
-// Compatibility with Cosmos apps calling convention
-func FindLedgerCosmosUserApp() (*LedgerTHORChain, error) {
-	return FindLedgerTHORChainUserApp()
-}
-
-// FindLedgerTHORChainUserApp finds a THORChain user app running in a ledger device
-func FindLedgerTHORChainUserApp() (*LedgerTHORChain, error) {
-	ledgerAPI, err := ledger_go.FindLedger()
-
+// FindLedgerCosmosUserApp finds a Cosmos user app running in a ledger device
+func FindLedgerTHORChainUserApp() (_ *LedgerTHORChain, rerr error) {
+	ledgerAdmin := ledger_go.NewLedgerAdmin()
+	ledgerAPI, err := ledgerAdmin.Connect(0)
 	if err != nil {
 		return nil, err
 	}
 
-	app := LedgerTHORChain{ledgerAPI, VersionInfo{}}
-	appVersion, err := app.GetVersion()
+	defer func() {
+		if rerr != nil {
+			ledgerAPI.Close()
+		}
+	}()
 
+	app := &LedgerTHORChain{ledgerAPI, VersionInfo{}}
+	appVersion, err := app.GetVersion()
 	if err != nil {
-		defer ledgerAPI.Close()
 		if err.Error() == "[APDU_CODE_CLA_NOT_SUPPORTED] Class not supported" {
-			return nil, fmt.Errorf("are you sure the THORChain app is open?")
+			err = errors.New("are you sure the Cosmos app is open?")
 		}
 		return nil, err
 	}
 
-	err = app.CheckVersion(*appVersion)
-	if err != nil {
-		defer ledgerAPI.Close()
+	if err := app.CheckVersion(*appVersion); err != nil {
 		return nil, err
 	}
 
-	return &app, err
+	return app, nil
 }
 
 // Close closes a connection with the THORChain user app
@@ -85,11 +83,13 @@ func (ledger *LedgerTHORChain) CheckVersion(ver VersionInfo) error {
 		return err
 	}
 
-	switch version.Major {
+	switch major := version.Major; major {
+	case 1:
+		return CheckVersion(ver, VersionInfo{0, 1, 5, 1})
 	case 2:
 		return CheckVersion(ver, VersionInfo{0, 2, 0, 0})
 	default:
-		return fmt.Errorf("App version is not supported")
+		return fmt.Errorf("App version %d is not supported", major)
 	}
 }
 
@@ -103,7 +103,7 @@ func (ledger *LedgerTHORChain) GetVersion() (*VersionInfo, error) {
 	}
 
 	if len(response) < 4 {
-		return nil, fmt.Errorf("invalid response")
+		return nil, errors.New("invalid response")
 	}
 
 	ledger.version = VersionInfo{
@@ -116,14 +116,17 @@ func (ledger *LedgerTHORChain) GetVersion() (*VersionInfo, error) {
 	return &ledger.version, nil
 }
 
-// SignSECP256K1 signs a transaction using THORChain user app
+// SignSECP256K1 signs a transaction using Cosmos user app. It can either use
+// SIGN_MODE_LEGACY_AMINO_JSON (P2=0) or SIGN_MODE_TEXTUAL (P2=1).
 // this command requires user confirmation in the device
-func (ledger *LedgerTHORChain) SignSECP256K1(bip32Path []uint32, transaction []byte) ([]byte, error) {
-	switch ledger.version.Major {
+func (ledger *LedgerTHORChain) SignSECP256K1(bip32Path []uint32, transaction []byte, p2 byte) ([]byte, error) {
+	switch major := ledger.version.Major; major {
+	case 1:
+		return ledger.signv1(bip32Path, transaction)
 	case 2:
-		return ledger.signv2(bip32Path, transaction)
+		return ledger.signv2(bip32Path, transaction, p2)
 	default:
-		return nil, fmt.Errorf("App version is not supported")
+		return nil, fmt.Errorf("App version %d is not supported", major)
 	}
 }
 
@@ -149,7 +152,7 @@ func (ledger *LedgerTHORChain) GetBip32bytes(bip32Path []uint32, hardenCount int
 	var pathBytes []byte
 	var err error
 
-	switch ledger.version.Major {
+	switch major := ledger.version.Major; major {
 	case 1:
 		pathBytes, err = GetBip32bytesv1(bip32Path, 3)
 		if err != nil {
@@ -161,13 +164,13 @@ func (ledger *LedgerTHORChain) GetBip32bytes(bip32Path []uint32, hardenCount int
 			return nil, err
 		}
 	default:
-		return nil, fmt.Errorf("App version is not supported")
+		return nil, fmt.Errorf("App version %d is not supported", major)
 	}
 
 	return pathBytes, nil
 }
 
-func (ledger *LedgerTHORChain) signv2(bip32Path []uint32, transaction []byte) ([]byte, error) {
+func (ledger *LedgerCosmos) signv1(bip32Path []uint32, transaction []byte) ([]byte, error) {
 	var packetIndex byte = 1
 	var packetCount = 1 + byte(math.Ceil(float64(len(transaction))/float64(userMessageChunkSize)))
 
@@ -182,7 +185,64 @@ func (ledger *LedgerTHORChain) signv2(bip32Path []uint32, transaction []byte) ([
 			if err != nil {
 				return nil, err
 			}
-			header := []byte{userCLA, userINSSignSECP256K1, 0, 0, byte(len(pathBytes))}
+			header := []byte{userCLA, userINSSignSECP256K1, packetIndex, packetCount, byte(len(pathBytes))}
+			message = append(header, pathBytes...)
+		} else {
+			if len(transaction) < userMessageChunkSize {
+				chunk = len(transaction)
+			}
+			header := []byte{userCLA, userINSSignSECP256K1, packetIndex, packetCount, byte(chunk)}
+			message = append(header, transaction[:chunk]...)
+		}
+
+		response, err := ledger.api.Exchange(message)
+		if err != nil {
+			if err.Error() == "[APDU_CODE_BAD_KEY_HANDLE] The parameters in the data field are incorrect" {
+				// In this special case, we can extract additional info
+				errorMsg := string(response)
+				switch errorMsg {
+				case "ERROR: JSMN_ERROR_NOMEM":
+					return nil, errors.New("Not enough tokens were provided")
+				case "PARSER ERROR: JSMN_ERROR_INVAL":
+					return nil, errors.New("Unexpected character in JSON string")
+				case "PARSER ERROR: JSMN_ERROR_PART":
+					return nil, errors.New("The JSON string is not a complete.")
+				}
+				return nil, errors.New(errorMsg)
+			}
+			return nil, err
+		}
+
+		finalResponse = response
+		if packetIndex > 1 {
+			transaction = transaction[chunk:]
+		}
+		packetIndex++
+
+	}
+	return finalResponse, nil
+}
+
+func (ledger *LedgerCosmos) signv2(bip32Path []uint32, transaction []byte, p2 byte) ([]byte, error) {
+	var packetIndex byte = 1
+	var packetCount = 1 + byte(math.Ceil(float64(len(transaction))/float64(userMessageChunkSize)))
+
+	var finalResponse []byte
+
+	var message []byte
+
+	if p2 > 1 {
+		return nil, errors.New("only values of SIGN_MODE_LEGACY_AMINO (P2=0) and SIGN_MODE_TEXTUAL (P2=1) are allowed")
+	}
+
+	for packetIndex <= packetCount {
+		chunk := userMessageChunkSize
+		if packetIndex == 1 {
+			pathBytes, err := ledger.GetBip32bytes(bip32Path, 3)
+			if err != nil {
+				return nil, err
+			}
+			header := []byte{userCLA, userINSSignSECP256K1, 0, p2, byte(len(pathBytes))}
 			message = append(header, pathBytes...)
 		} else {
 			if len(transaction) < userMessageChunkSize {
@@ -194,7 +254,7 @@ func (ledger *LedgerTHORChain) signv2(bip32Path []uint32, transaction []byte) ([
 				payloadDesc = byte(2)
 			}
 
-			header := []byte{userCLA, userINSSignSECP256K1, payloadDesc, 0, byte(chunk)}
+			header := []byte{userCLA, userINSSignSECP256K1, payloadDesc, p2, byte(chunk)}
 			message = append(header, transaction[:chunk]...)
 		}
 
@@ -205,17 +265,17 @@ func (ledger *LedgerTHORChain) signv2(bip32Path []uint32, transaction []byte) ([
 				errorMsg := string(response)
 				switch errorMsg {
 				case "ERROR: JSMN_ERROR_NOMEM":
-					return nil, fmt.Errorf("Not enough tokens were provided")
+					return nil, errors.New("Not enough tokens were provided")
 				case "PARSER ERROR: JSMN_ERROR_INVAL":
-					return nil, fmt.Errorf("Unexpected character in JSON string")
+					return nil, errors.New("Unexpected character in JSON string")
 				case "PARSER ERROR: JSMN_ERROR_PART":
-					return nil, fmt.Errorf("The JSON string is not a complete.")
+					return nil, errors.New("The JSON string is not a complete.")
 				}
-				return nil, fmt.Errorf(errorMsg)
+				return nil, errors.New(errorMsg)
 			}
 			if err.Error() == "[APDU_CODE_DATA_INVALID] Referenced data reversibly blocked (invalidated)" {
 				errorMsg := string(response)
-				return nil, fmt.Errorf(errorMsg)
+				return nil, errors.New(errorMsg)
 			}
 			return nil, err
 		}
@@ -234,13 +294,13 @@ func (ledger *LedgerTHORChain) signv2(bip32Path []uint32, transaction []byte) ([
 // this command requires user confirmation in the device
 func (ledger *LedgerTHORChain) getAddressPubKeySECP256K1(bip32Path []uint32, hrp string, requireConfirmation bool) (pubkey []byte, addr string, err error) {
 	if len(hrp) > 83 {
-		return nil, "", fmt.Errorf("hrp len should be <10")
+		return nil, "", errors.New("hrp len should be <10")
 	}
 
 	hrpBytes := []byte(hrp)
 	for _, b := range hrpBytes {
 		if !validHRPByte(b) {
-			return nil, "", fmt.Errorf("all characters in the HRP must be in the [33, 126] range")
+			return nil, "", errors.New("all characters in the HRP must be in the [33, 126] range")
 		}
 	}
 
@@ -267,7 +327,7 @@ func (ledger *LedgerTHORChain) getAddressPubKeySECP256K1(bip32Path []uint32, hrp
 		return nil, "", err
 	}
 	if len(response) < 35+len(hrp) {
-		return nil, "", fmt.Errorf("Invalid response")
+		return nil, "", errors.New("Invalid response")
 	}
 
 	pubkey = response[0:33]
